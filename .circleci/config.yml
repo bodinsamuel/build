@@ -19,7 +19,11 @@ workflows:
 
   'Test & Check 🕵️‍♀️':
     jobs:
-      - formatting
+      - formatting:
+          filters:
+            branches:
+              # don't run this job on a release PR branch (they all start with release-)
+              ignore: /^release-.*$/
 
 executors:
   node:
@@ -91,7 +95,6 @@ jobs:
     executor: node
     steps:
       - checkout
-      - npm-install-deps:
-          command: npm install
+      - npm-install-deps
       - run: npm run format:ci
       - run: npm run lint:ci
