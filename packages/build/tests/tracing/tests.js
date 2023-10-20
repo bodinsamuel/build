@@ -1,12 +1,14 @@
-import { writeFile, rm } from 'fs/promises'
+import { writeFile, mkdir, rm } from 'fs/promises'
+import { fileURLToPath } from 'url'
 
-import { trace, TraceFlags } from '@opentelemetry/api'
+import { trace, TraceFlags, propagation, context } from '@opentelemetry/api'
 import { getBaggage } from '@opentelemetry/api/build/src/baggage/context-helpers.js'
 import test from 'ava'
 
 import { setMultiSpanAttributes, startTracing, stopTracing, loadBaggageFromFile } from '../../lib/tracing/main.js'
 
-const BAGGAGE_PATH = './baggage.dump'
+const FIXTURES_DIR = fileURLToPath(new URL('fixtures', import.meta.url))
+const BAGGAGE_PATH = `${FIXTURES_DIR}/baggage.dump`
 
 test('Tracing set multi span attributes', async (t) => {
   const ctx = setMultiSpanAttributes({ some: 'test', foo: 'bar' })
@@ -54,25 +56,25 @@ const testMatrixBaggageFile = [
 testMatrixBaggageFile.forEach((testCase) => {
   test.serial(`Tracing baggage loading - ${testCase.description}`, async (t) => {
     const { input, expects } = testCase
-    var ctx
-    try {
-      if (input.baggageFilePath.length > 0) {
-        await writeFile(input.baggageFilePath, input.baggageFileContent)
-      }
-      ctx = await loadBaggageFromFile(input.baggageFilePath)
-    } finally {
-      if (input.baggageFilePath.length > 0) await rm(input.baggageFilePath, { force: true })
+
+    if (input.baggageFilePath.length > 0) {
+      await mkdir(FIXTURES_DIR, { recursive: true })
+      await writeFile(input.baggageFilePath, input.baggageFileContent)
+      await loadBaggageFromFile(input.baggageFilePath)
     }
 
-    const baggage = getBaggage(ctx)
+    const baggage = propagation.getBaggage(context.active())
 
     Object.entries(expects).forEach(([property, expected]) => {
-      if (expected == undefined) {
+      if (expected === undefined) {
         t.is(baggage.getEntry(property), expected)
       } else {
         t.is(baggage.getEntry(property).value, expected.value)
       }
     })
+    if (input.baggageFilePath.length > 0) {
+      rm(input.baggageFilePath, { force: true })
+    }
   })
 })
 
