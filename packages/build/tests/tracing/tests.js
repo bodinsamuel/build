@@ -1,14 +1,79 @@
+import { writeFile, rm } from 'fs/promises'
+
 import { trace, TraceFlags } from '@opentelemetry/api'
 import { getBaggage } from '@opentelemetry/api/build/src/baggage/context-helpers.js'
 import test from 'ava'
 
-import { setMultiSpanAttributes, startTracing, stopTracing } from '../../lib/tracing/main.js'
+import { setMultiSpanAttributes, startTracing, stopTracing, loadBaggageFromFile } from '../../lib/tracing/main.js'
+
+const BAGGAGE_PATH = './baggage.dump'
 
 test('Tracing set multi span attributes', async (t) => {
   const ctx = setMultiSpanAttributes({ some: 'test', foo: 'bar' })
   const baggage = getBaggage(ctx)
   t.is(baggage.getEntry('some').value, 'test')
   t.is(baggage.getEntry('foo').value, 'bar')
+})
+
+const testMatrixBaggageFile = [
+  {
+    description: 'when baggageFilePath is blank',
+    input: {
+      baggageFilePath: '',
+      baggageFileContent: null,
+    },
+    expects: {
+      somefield: undefined,
+      foo: undefined,
+    },
+  },
+  {
+    description: 'when baggageFilePath is set but file is empty',
+    input: {
+      baggageFilePath: BAGGAGE_PATH,
+      baggageFileContent: '',
+    },
+    expects: {
+      somefield: undefined,
+      foo: undefined,
+    },
+  },
+  {
+    description: 'when baggageFilePath is set and has content',
+    input: {
+      baggageFilePath: BAGGAGE_PATH,
+      baggageFileContent: 'somefield=value,foo=bar',
+    },
+    expects: {
+      somefield: { value: 'value' },
+      foo: { value: 'bar' },
+    },
+  },
+]
+
+testMatrixBaggageFile.forEach((testCase) => {
+  test.serial(`Tracing baggage loading - ${testCase.description}`, async (t) => {
+    const { input, expects } = testCase
+    var ctx
+    try {
+      if (input.baggageFilePath.length > 0) {
+        await writeFile(input.baggageFilePath, input.baggageFileContent)
+      }
+      ctx = await loadBaggageFromFile(input.baggageFilePath)
+    } finally {
+      if (input.baggageFilePath.length > 0) await rm(input.baggageFilePath, { force: true })
+    }
+
+    const baggage = getBaggage(ctx)
+
+    Object.entries(expects).forEach(([property, expected]) => {
+      if (expected == undefined) {
+        t.is(baggage.getEntry(property), expected)
+      } else {
+        t.is(baggage.getEntry(property).value, expected.value)
+      }
+    })
+  })
 })
 
 const spanId = '6e0c63257de34c92'
